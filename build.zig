@@ -1,18 +1,10 @@
 const std = @import("std");
-const protobuf = @import("protobuf");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
     const log_level = b.option([]const u8, "log_level", "Log level: debug, info, warn, err (default: info)") orelse "info";
-
-    const protobuf_dep = b.dependency("protobuf", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const protobuf_mod = protobuf_dep.module("protobuf");
 
     // --- Modules ---
 
@@ -63,9 +55,6 @@ pub fn build(b: *std.Build) void {
     const wa_proto_mod = b.addModule("whatsapp_proto", .{
         .root_source_file = b.path("src/gen/whatsapp.pb.zig"),
         .target = target,
-        .imports = &.{
-            .{ .name = "protobuf", .module = protobuf_mod },
-        },
     });
 
     const log_options = b.addOptions();
@@ -148,7 +137,6 @@ pub fn build(b: *std.Build) void {
             .{ .name = "binary", .module = binary_mod },
             .{ .name = "signal", .module = signal_mod },
             .{ .name = "prekey", .module = prekey_mod },
-            .{ .name = "protobuf", .module = protobuf_mod },
             .{ .name = "whatsapp_proto", .module = wa_proto_mod },
             .{ .name = "reporting", .module = reporting_mod },
         },
@@ -188,6 +176,11 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const tui_mod = b.addModule("tui", .{
+        .root_source_file = b.path("src/tui/debugger.zig"),
+        .target = target,
+    });
+
     const client_mod = b.addModule("client", .{
         .root_source_file = b.path("src/client.zig"),
         .target = target,
@@ -212,6 +205,48 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const ffi_mod = b.addModule("ffi", .{
+        .root_source_file = b.path("src/ffi/bindings.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "security", .module = security_mod },
+            .{ .name = "tui", .module = tui_mod },
+            .{ .name = "client", .module = client_mod },
+        },
+    });
+
+    const mcp_mod = b.addModule("mcp", .{
+        .root_source_file = b.path("src/mcp/root.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "client", .module = client_mod },
+            .{ .name = "binary", .module = binary_mod },
+            .{ .name = "log", .module = log_mod },
+        },
+    });
+
+    // --- ManagerAgent Module (In-Memory Message Broker + SQLite) ---
+
+    const manager_agent_mod = b.addModule("manager_agent", .{
+        .root_source_file = b.path("src/manager_agent_root.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "log", .module = log_mod },
+        },
+    });
+
+    const wasm_mod = b.addModule("wasm", .{
+        .root_source_file = b.path("src/wasm/client.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "security", .module = security_mod },
+            .{ .name = "tui", .module = tui_mod },
+            .{ .name = "ffi", .module = ffi_mod },
+            .{ .name = "mcp", .module = mcp_mod },
+            .{ .name = "manager_agent", .module = manager_agent_mod },
+        },
+    });
+
     // --- Library root module ---
 
     const mod = b.addModule("whatszig", .{
@@ -226,14 +261,18 @@ pub fn build(b: *std.Build) void {
             .{ .name = "socket", .module = socket_mod },
             .{ .name = "websocket_client", .module = websocket_client_mod },
             .{ .name = "whatsapp_proto", .module = wa_proto_mod },
-            .{ .name = "protobuf", .module = protobuf_mod },
             .{ .name = "signal", .module = signal_mod },
             .{ .name = "events", .module = events_mod },
             .{ .name = "addressing", .module = addressing_mod },
             .{ .name = "usync", .module = usync_mod },
             .{ .name = "security", .module = security_mod },
+            .{ .name = "tui", .module = tui_mod },
+            .{ .name = "ffi", .module = ffi_mod },
+            .{ .name = "wasm", .module = wasm_mod },
+            .{ .name = "mcp", .module = mcp_mod },
             .{ .name = "jid_common", .module = jid_common_mod },
             .{ .name = "log", .module = log_mod },
+            .{ .name = "manager_agent", .module = manager_agent_mod },
         },
     });
 
@@ -241,19 +280,11 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "whatszig",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-            // This CLI/demo executable is single-threaded and optimized for shipping size.
-            // Keep the library/test roots on default settings.
-            .single_threaded = if (optimize == .ReleaseSmall) true else null,
-            .unwind_tables = if (optimize == .ReleaseSmall) .none else null,
-            .imports = &.{
-                .{ .name = "whatszig", .module = mod },
-            },
-        }),
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
     });
+    exe.root_module.addImport("whatszig", mod);
     if (optimize == .ReleaseSmall) {
         exe.link_function_sections = true;
         exe.link_data_sections = true;
@@ -263,17 +294,11 @@ pub fn build(b: *std.Build) void {
 
     const benchmark_exe = b.addExecutable(.{
         .name = "benchmark",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/benchmark.zig"),
-            .target = target,
-            .optimize = optimize,
-            .single_threaded = if (optimize == .ReleaseSmall) true else null,
-            .unwind_tables = if (optimize == .ReleaseSmall) .none else null,
-            .imports = &.{
-                .{ .name = "whatszig", .module = mod },
-            },
-        }),
+        .root_source_file = b.path("src/benchmark.zig"),
+        .target = target,
+        .optimize = optimize,
     });
+    benchmark_exe.root_module.addImport("whatszig", mod);
     if (optimize == .ReleaseSmall) {
         benchmark_exe.link_function_sections = true;
         benchmark_exe.link_data_sections = true;
@@ -281,32 +306,47 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(benchmark_exe);
 
+    // --- Shared Library (FFI) ---
+
+    const lib = b.addSharedLibrary(.{
+        .name = "whatszigh",
+        .root_source_file = b.path("src/ffi/bindings.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lib.root_module.addImport("security", security_mod);
+    lib.root_module.addImport("tui", tui_mod);
+    lib.root_module.addImport("client", client_mod);
+    b.installArtifact(lib);
+
+    // --- WASM Target ---
+
+    const wasm_exe = b.addExecutable(.{
+        .name = "whatszigh_wasm",
+        .root_source_file = b.path("src/wasm/client.zig"),
+        .target = b.resolveTargetQuery(.{
+            .cpu_arch = .wasm32,
+            .os_tag = .freestanding,
+        }),
+        .optimize = optimize,
+    });
+    wasm_exe.root_module.addImport("security", security_mod);
+    wasm_exe.root_module.addImport("tui", tui_mod);
+    wasm_exe.root_module.addImport("ffi", ffi_mod);
+    wasm_exe.entry = .disabled;
+    wasm_exe.rdynamic = true;
+    b.installArtifact(wasm_exe);
+
     const profile_mem_exe = b.addExecutable(.{
         .name = "profile-memory",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tools/profile_memory.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "client", .module = client_mod },
-                .{ .name = "websocket_client", .module = websocket_client_mod },
-                .{ .name = "socket", .module = socket_mod },
-                .{ .name = "handshake", .module = handshake_orch_mod },
-            },
-        }),
+        .root_source_file = b.path("tools/profile_memory.zig"),
+        .target = target,
+        .optimize = optimize,
     });
-
-    const gen_proto = b.step("gen-proto", "generates zig files from protocol buffer definitions");
-    const protoc_step = protobuf.RunProtocStep.create(protobuf_dep.builder, target, .{
-        .destination_directory = b.path("src/gen"),
-        .source_files = &.{
-            b.path("proto/whatsapp.proto"),
-        },
-        .include_directories = &.{
-            b.path("proto"),
-        },
-    });
-    gen_proto.dependOn(&protoc_step.step);
+    profile_mem_exe.root_module.addImport("client", client_mod);
+    profile_mem_exe.root_module.addImport("websocket_client", websocket_client_mod);
+    profile_mem_exe.root_module.addImport("socket", socket_mod);
+    profile_mem_exe.root_module.addImport("handshake", handshake_orch_mod);
 
     // --- Run ---
 
@@ -324,7 +364,8 @@ pub fn build(b: *std.Build) void {
 
     // --- Unit tests ---
 
-    const mod_tests = b.addTest(.{ .root_module = mod });
+    const mod_tests = b.addTest(.{ .root_source_file = b.path("src/root.zig") });
+    mod_tests.root_module.addImport("whatszig", mod);
     const run_mod_tests = b.addRunArtifact(mod_tests);
 
     const test_step = b.step("test", "Run unit tests");
@@ -333,45 +374,37 @@ pub fn build(b: *std.Build) void {
     // --- E2E tests (require mock server) ---
 
     const e2e_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/e2e.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "client", .module = client_mod },
-            },
-        }),
+        .root_source_file = b.path("tests/e2e.zig"),
+        .target = target,
+        .optimize = optimize,
     });
+    e2e_tests.root_module.addImport("client", client_mod);
 
     const run_e2e_tests = b.addRunArtifact(e2e_tests);
     const e2e_step = b.step("e2e", "Run e2e tests (requires mock server)");
     e2e_step.dependOn(&run_e2e_tests.step);
 
     const profile_e2e_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/profile_no_version.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "client", .module = client_mod },
-                .{ .name = "websocket_client", .module = websocket_client_mod },
-                .{ .name = "socket", .module = socket_mod },
-                .{ .name = "binary", .module = binary_mod },
-                .{ .name = "signal", .module = signal_mod },
-                .{ .name = "handshake", .module = handshake_orch_mod },
-                .{ .name = "node_handler", .module = node_handler_mod },
-                .{ .name = "prekey", .module = prekey_mod },
-                .{ .name = "messaging", .module = messaging_mod },
-                .{ .name = "pair", .module = pair_mod },
-                .{ .name = "whatsapp_proto", .module = wa_proto_mod },
-                .{ .name = "events", .module = events_mod },
-                .{ .name = "addressing", .module = addressing_mod },
-                .{ .name = "usync", .module = usync_mod },
-                .{ .name = "jid_common", .module = jid_common_mod },
-                .{ .name = "log", .module = log_mod },
-            },
-        }),
+        .root_source_file = b.path("tests/profile_no_version.zig"),
+        .target = target,
+        .optimize = optimize,
     });
+    profile_e2e_tests.root_module.addImport("client", client_mod);
+    profile_e2e_tests.root_module.addImport("websocket_client", websocket_client_mod);
+    profile_e2e_tests.root_module.addImport("socket", socket_mod);
+    profile_e2e_tests.root_module.addImport("binary", binary_mod);
+    profile_e2e_tests.root_module.addImport("signal", signal_mod);
+    profile_e2e_tests.root_module.addImport("handshake", handshake_orch_mod);
+    profile_e2e_tests.root_module.addImport("node_handler", node_handler_mod);
+    profile_e2e_tests.root_module.addImport("prekey", prekey_mod);
+    profile_e2e_tests.root_module.addImport("messaging", messaging_mod);
+    profile_e2e_tests.root_module.addImport("pair", pair_mod);
+    profile_e2e_tests.root_module.addImport("whatsapp_proto", wa_proto_mod);
+    profile_e2e_tests.root_module.addImport("events", events_mod);
+    profile_e2e_tests.root_module.addImport("addressing", addressing_mod);
+    profile_e2e_tests.root_module.addImport("usync", usync_mod);
+    profile_e2e_tests.root_module.addImport("jid_common", jid_common_mod);
+    profile_e2e_tests.root_module.addImport("log", log_mod);
 
     const run_profile_e2e_tests = b.addRunArtifact(profile_e2e_tests);
     const profile_e2e_step = b.step("profile-e2e", "Run e2e tests without version fetch for profiling");
