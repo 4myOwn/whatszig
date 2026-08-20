@@ -1,18 +1,7 @@
 .{
-    .name = .whatszig,
-
+    .name = "whatszig",
     .version = "0.0.0",
-
-    .fingerprint = 0xf311197367a93c9b,
-
-    .minimum_zig_version = "0.16.0",
-
-    .dependencies = .{
-        .protobuf = .{
-            .url = "git+https://github.com/jlucaso1/zig-protobuf?ref=zig-master-cyclic-fix#4cdce57ccdae1f126fe2b0e0d6cc10c66198b0dc",
-            .hash = "protobuf-3.0.0-0e82arObKACzh1DI8F0GnPKbfPti1aiORHLTzTPfgH6q",
-        },
-    },
+    .dependencies = .{},
     .paths = .{
         "build.zig",
         "build.zig.zon",
