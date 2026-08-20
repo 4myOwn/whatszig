@@ -188,6 +188,30 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const tui_mod = b.addModule("tui", .{
+        .root_source_file = b.path("src/tui/debugger.zig"),
+        .target = target,
+    });
+
+    const ffi_mod = b.addModule("ffi", .{
+        .root_source_file = b.path("src/ffi/bindings.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "security", .module = security_mod },
+            .{ .name = "tui", .module = tui_mod },
+        },
+    });
+
+    const wasm_mod = b.addModule("wasm", .{
+        .root_source_file = b.path("src/wasm/client.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "security", .module = security_mod },
+            .{ .name = "tui", .module = tui_mod },
+            .{ .name = "ffi", .module = ffi_mod },
+        },
+    });
+
     const client_mod = b.addModule("client", .{
         .root_source_file = b.path("src/client.zig"),
         .target = target,
@@ -232,6 +256,9 @@ pub fn build(b: *std.Build) void {
             .{ .name = "addressing", .module = addressing_mod },
             .{ .name = "usync", .module = usync_mod },
             .{ .name = "security", .module = security_mod },
+            .{ .name = "tui", .module = tui_mod },
+            .{ .name = "ffi", .module = ffi_mod },
+            .{ .name = "wasm", .module = wasm_mod },
             .{ .name = "jid_common", .module = jid_common_mod },
             .{ .name = "log", .module = log_mod },
         },
@@ -241,19 +268,11 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "whatszig",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-            // This CLI/demo executable is single-threaded and optimized for shipping size.
-            // Keep the library/test roots on default settings.
-            .single_threaded = if (optimize == .ReleaseSmall) true else null,
-            .unwind_tables = if (optimize == .ReleaseSmall) .none else null,
-            .imports = &.{
-                .{ .name = "whatszig", .module = mod },
-            },
-        }),
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
     });
+    exe.root_module.addImport("whatszig", mod);
     if (optimize == .ReleaseSmall) {
         exe.link_function_sections = true;
         exe.link_data_sections = true;
@@ -263,23 +282,48 @@ pub fn build(b: *std.Build) void {
 
     const benchmark_exe = b.addExecutable(.{
         .name = "benchmark",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/benchmark.zig"),
-            .target = target,
-            .optimize = optimize,
-            .single_threaded = if (optimize == .ReleaseSmall) true else null,
-            .unwind_tables = if (optimize == .ReleaseSmall) .none else null,
-            .imports = &.{
-                .{ .name = "whatszig", .module = mod },
-            },
-        }),
+        .root_source_file = b.path("src/benchmark.zig"),
+        .target = target,
+        .optimize = optimize,
     });
+    benchmark_exe.root_module.addImport("whatszig", mod);
     if (optimize == .ReleaseSmall) {
         benchmark_exe.link_function_sections = true;
         benchmark_exe.link_data_sections = true;
     }
 
     b.installArtifact(benchmark_exe);
+
+    // --- Shared Library (FFI) ---
+
+    const lib = b.addSharedLibrary(.{
+        .name = "whatszigh",
+        .root_source_file = b.path("src/ffi/bindings.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lib.root_module.addImport("security", security_mod);
+    lib.root_module.addImport("tui", tui_mod);
+    lib.root_module.addImport("client", client_mod);
+    b.installArtifact(lib);
+
+    // --- WASM Target ---
+
+    const wasm_exe = b.addExecutable(.{
+        .name = "whatszigh_wasm",
+        .root_source_file = b.path("src/wasm/client.zig"),
+        .target = b.resolveTargetQuery(.{
+            .cpu_arch = .wasm32,
+            .os_tag = .freestanding,
+        }),
+        .optimize = optimize,
+    });
+    wasm_exe.root_module.addImport("security", security_mod);
+    wasm_exe.root_module.addImport("tui", tui_mod);
+    wasm_exe.root_module.addImport("ffi", ffi_mod);
+    wasm_exe.entry = .disabled;
+    wasm_exe.rdynamic = true;
+    b.installArtifact(wasm_exe);
 
     const profile_mem_exe = b.addExecutable(.{
         .name = "profile-memory",
