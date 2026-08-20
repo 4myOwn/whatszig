@@ -1,15 +1,23 @@
 ```
-# Zig build artifacts
-.zig-cache/
+# Build artifacts
 zig-cache/
+zig-out/
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+*.out
 
 # Dependencies
+.zigmod/
 deps/
-vendor/
 
 # Logs and temp files
 *.log
 *.tmp
+*.swp
 
 # Environment
 .env
@@ -21,8 +29,4 @@ vendor/
 .idea/
 *.swp
 *.swo
-
-# OS generated files
-.DS_Store
-Thumbs.db
 ```

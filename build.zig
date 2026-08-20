@@ -1,18 +1,10 @@
 const std = @import("std");
-const protobuf = @import("protobuf");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
     const log_level = b.option([]const u8, "log_level", "Log level: debug, info, warn, err (default: info)") orelse "info";
-
-    const protobuf_dep = b.dependency("protobuf", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const protobuf_mod = protobuf_dep.module("protobuf");
 
     // --- Modules ---
 
@@ -63,9 +55,6 @@ pub fn build(b: *std.Build) void {
     const wa_proto_mod = b.addModule("whatsapp_proto", .{
         .root_source_file = b.path("src/gen/whatsapp.pb.zig"),
         .target = target,
-        .imports = &.{
-            .{ .name = "protobuf", .module = protobuf_mod },
-        },
     });
 
     const log_options = b.addOptions();
@@ -148,7 +137,6 @@ pub fn build(b: *std.Build) void {
             .{ .name = "binary", .module = binary_mod },
             .{ .name = "signal", .module = signal_mod },
             .{ .name = "prekey", .module = prekey_mod },
-            .{ .name = "protobuf", .module = protobuf_mod },
             .{ .name = "whatsapp_proto", .module = wa_proto_mod },
             .{ .name = "reporting", .module = reporting_mod },
         },
@@ -236,6 +224,15 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    // Add client import to FFI module after client_mod is created
+    if (b.modules.get("ffi")) |ffi_module| {
+        ffi_module.imports = &.{
+            .{ .name = "security", .module = security_mod },
+            .{ .name = "tui", .module = tui_mod },
+            .{ .name = "client", .module = client_mod },
+        };
+    }
+
     // --- Library root module ---
 
     const mod = b.addModule("whatszig", .{
@@ -250,7 +247,6 @@ pub fn build(b: *std.Build) void {
             .{ .name = "socket", .module = socket_mod },
             .{ .name = "websocket_client", .module = websocket_client_mod },
             .{ .name = "whatsapp_proto", .module = wa_proto_mod },
-            .{ .name = "protobuf", .module = protobuf_mod },
             .{ .name = "signal", .module = signal_mod },
             .{ .name = "events", .module = events_mod },
             .{ .name = "addressing", .module = addressing_mod },
@@ -327,30 +323,14 @@ pub fn build(b: *std.Build) void {
 
     const profile_mem_exe = b.addExecutable(.{
         .name = "profile-memory",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tools/profile_memory.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "client", .module = client_mod },
-                .{ .name = "websocket_client", .module = websocket_client_mod },
-                .{ .name = "socket", .module = socket_mod },
-                .{ .name = "handshake", .module = handshake_orch_mod },
-            },
-        }),
+        .root_source_file = b.path("tools/profile_memory.zig"),
+        .target = target,
+        .optimize = optimize,
     });
-
-    const gen_proto = b.step("gen-proto", "generates zig files from protocol buffer definitions");
-    const protoc_step = protobuf.RunProtocStep.create(protobuf_dep.builder, target, .{
-        .destination_directory = b.path("src/gen"),
-        .source_files = &.{
-            b.path("proto/whatsapp.proto"),
-        },
-        .include_directories = &.{
-            b.path("proto"),
-        },
-    });
-    gen_proto.dependOn(&protoc_step.step);
+    profile_mem_exe.root_module.addImport("client", client_mod);
+    profile_mem_exe.root_module.addImport("websocket_client", websocket_client_mod);
+    profile_mem_exe.root_module.addImport("socket", socket_mod);
+    profile_mem_exe.root_module.addImport("handshake", handshake_orch_mod);
 
     // --- Run ---
 
