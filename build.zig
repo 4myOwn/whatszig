@@ -181,25 +181,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
-    const ffi_mod = b.addModule("ffi", .{
-        .root_source_file = b.path("src/ffi/bindings.zig"),
-        .target = target,
-        .imports = &.{
-            .{ .name = "security", .module = security_mod },
-            .{ .name = "tui", .module = tui_mod },
-        },
-    });
-
-    const wasm_mod = b.addModule("wasm", .{
-        .root_source_file = b.path("src/wasm/client.zig"),
-        .target = target,
-        .imports = &.{
-            .{ .name = "security", .module = security_mod },
-            .{ .name = "tui", .module = tui_mod },
-            .{ .name = "ffi", .module = ffi_mod },
-        },
-    });
-
     const client_mod = b.addModule("client", .{
         .root_source_file = b.path("src/client.zig"),
         .target = target,
@@ -224,14 +205,36 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Add client import to FFI module after client_mod is created
-    if (b.modules.get("ffi")) |ffi_module| {
-        ffi_module.imports = &.{
+    const ffi_mod = b.addModule("ffi", .{
+        .root_source_file = b.path("src/ffi/bindings.zig"),
+        .target = target,
+        .imports = &.{
             .{ .name = "security", .module = security_mod },
             .{ .name = "tui", .module = tui_mod },
             .{ .name = "client", .module = client_mod },
-        };
-    }
+        },
+    });
+
+    const mcp_mod = b.addModule("mcp", .{
+        .root_source_file = b.path("src/mcp/root.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "client", .module = client_mod },
+            .{ .name = "binary", .module = binary_mod },
+            .{ .name = "log", .module = log_mod },
+        },
+    });
+
+    const wasm_mod = b.addModule("wasm", .{
+        .root_source_file = b.path("src/wasm/client.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "security", .module = security_mod },
+            .{ .name = "tui", .module = tui_mod },
+            .{ .name = "ffi", .module = ffi_mod },
+            .{ .name = "mcp", .module = mcp_mod },
+        },
+    });
 
     // --- Library root module ---
 
@@ -255,6 +258,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "tui", .module = tui_mod },
             .{ .name = "ffi", .module = ffi_mod },
             .{ .name = "wasm", .module = wasm_mod },
+            .{ .name = "mcp", .module = mcp_mod },
             .{ .name = "jid_common", .module = jid_common_mod },
             .{ .name = "log", .module = log_mod },
         },
@@ -348,7 +352,8 @@ pub fn build(b: *std.Build) void {
 
     // --- Unit tests ---
 
-    const mod_tests = b.addTest(.{ .root_module = mod });
+    const mod_tests = b.addTest(.{ .root_source_file = b.path("src/root.zig") });
+    mod_tests.root_module.addImport("whatszig", mod);
     const run_mod_tests = b.addRunArtifact(mod_tests);
 
     const test_step = b.step("test", "Run unit tests");
@@ -357,45 +362,37 @@ pub fn build(b: *std.Build) void {
     // --- E2E tests (require mock server) ---
 
     const e2e_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/e2e.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "client", .module = client_mod },
-            },
-        }),
+        .root_source_file = b.path("tests/e2e.zig"),
+        .target = target,
+        .optimize = optimize,
     });
+    e2e_tests.root_module.addImport("client", client_mod);
 
     const run_e2e_tests = b.addRunArtifact(e2e_tests);
     const e2e_step = b.step("e2e", "Run e2e tests (requires mock server)");
     e2e_step.dependOn(&run_e2e_tests.step);
 
     const profile_e2e_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/profile_no_version.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "client", .module = client_mod },
-                .{ .name = "websocket_client", .module = websocket_client_mod },
-                .{ .name = "socket", .module = socket_mod },
-                .{ .name = "binary", .module = binary_mod },
-                .{ .name = "signal", .module = signal_mod },
-                .{ .name = "handshake", .module = handshake_orch_mod },
-                .{ .name = "node_handler", .module = node_handler_mod },
-                .{ .name = "prekey", .module = prekey_mod },
-                .{ .name = "messaging", .module = messaging_mod },
-                .{ .name = "pair", .module = pair_mod },
-                .{ .name = "whatsapp_proto", .module = wa_proto_mod },
-                .{ .name = "events", .module = events_mod },
-                .{ .name = "addressing", .module = addressing_mod },
-                .{ .name = "usync", .module = usync_mod },
-                .{ .name = "jid_common", .module = jid_common_mod },
-                .{ .name = "log", .module = log_mod },
-            },
-        }),
+        .root_source_file = b.path("tests/profile_no_version.zig"),
+        .target = target,
+        .optimize = optimize,
     });
+    profile_e2e_tests.root_module.addImport("client", client_mod);
+    profile_e2e_tests.root_module.addImport("websocket_client", websocket_client_mod);
+    profile_e2e_tests.root_module.addImport("socket", socket_mod);
+    profile_e2e_tests.root_module.addImport("binary", binary_mod);
+    profile_e2e_tests.root_module.addImport("signal", signal_mod);
+    profile_e2e_tests.root_module.addImport("handshake", handshake_orch_mod);
+    profile_e2e_tests.root_module.addImport("node_handler", node_handler_mod);
+    profile_e2e_tests.root_module.addImport("prekey", prekey_mod);
+    profile_e2e_tests.root_module.addImport("messaging", messaging_mod);
+    profile_e2e_tests.root_module.addImport("pair", pair_mod);
+    profile_e2e_tests.root_module.addImport("whatsapp_proto", wa_proto_mod);
+    profile_e2e_tests.root_module.addImport("events", events_mod);
+    profile_e2e_tests.root_module.addImport("addressing", addressing_mod);
+    profile_e2e_tests.root_module.addImport("usync", usync_mod);
+    profile_e2e_tests.root_module.addImport("jid_common", jid_common_mod);
+    profile_e2e_tests.root_module.addImport("log", log_mod);
 
     const run_profile_e2e_tests = b.addRunArtifact(profile_e2e_tests);
     const profile_e2e_step = b.step("profile-e2e", "Run e2e tests without version fetch for profiling");
