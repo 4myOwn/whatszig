@@ -225,6 +225,16 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    // --- ManagerAgent Module (In-Memory Message Broker + SQLite) ---
+
+    const manager_agent_mod = b.addModule("manager_agent", .{
+        .root_source_file = b.path("src/manager_agent_root.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "log", .module = log_mod },
+        },
+    });
+
     const wasm_mod = b.addModule("wasm", .{
         .root_source_file = b.path("src/wasm/client.zig"),
         .target = target,
@@ -233,6 +243,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "tui", .module = tui_mod },
             .{ .name = "ffi", .module = ffi_mod },
             .{ .name = "mcp", .module = mcp_mod },
+            .{ .name = "manager_agent", .module = manager_agent_mod },
         },
     });
 
@@ -261,6 +272,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "mcp", .module = mcp_mod },
             .{ .name = "jid_common", .module = jid_common_mod },
             .{ .name = "log", .module = log_mod },
+            .{ .name = "manager_agent", .module = manager_agent_mod },
         },
     });
 
