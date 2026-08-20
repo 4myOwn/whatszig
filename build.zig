@@ -179,6 +179,15 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const security_mod = b.addModule("security", .{
+        .root_source_file = b.path("src/security.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "xed25519", .module = xed25519_mod },
+            .{ .name = "noise", .module = noise_mod },
+        },
+    });
+
     const client_mod = b.addModule("client", .{
         .root_source_file = b.path("src/client.zig"),
         .target = target,
@@ -222,6 +231,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "events", .module = events_mod },
             .{ .name = "addressing", .module = addressing_mod },
             .{ .name = "usync", .module = usync_mod },
+            .{ .name = "security", .module = security_mod },
             .{ .name = "jid_common", .module = jid_common_mod },
             .{ .name = "log", .module = log_mod },
         },
